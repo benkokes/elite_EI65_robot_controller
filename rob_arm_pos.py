@@ -26,7 +26,7 @@ COMMAND = "cd /rbctrl && ./robotmon"
 TCP_IP = "192.168.1.200"
 TCP_PORT = 8055
 
-DEBUG = False
+DEBUG = True
 
 def clear_screen():
     if platform.system() == "Windows":
@@ -37,6 +37,7 @@ def clear_screen():
 screen = pyte.Screen(COLS, ROWS)
 stream = pyte.Stream(screen)
 joint_angle_queue = queue.Queue()
+plc_state_queue = queue.Queue()
 
 def ssh_stream_function():
     ssh = paramiko.SSHClient()
@@ -72,6 +73,15 @@ def ssh_stream_function():
                 angles = extract_joint_angles_alternative()
                 if angles:
                     joint_angle_queue.put(angles)
+                
+                plc_states = extract_plc_states(screen.display) # Extract PLC states
+                if plc_states:
+                    plc_state_queue.put(plc_states) # Put into new queue
+                    if DEBUG: log_message(f"SSH: Put PLC states in queue: {plc_states}")
+                else:
+                    if DEBUG: log_message("SSH: No PLC states extracted in this cycle.")
+
+    
             time.sleep(0.1)
     except KeyboardInterrupt:
         print("SSH stream stopped by user.")
@@ -106,48 +116,123 @@ root = tk.Tk()
 root.title("Joint Positions & Robot Control")
 original_bg_color = root.cget("background")
 
+def extract_plc_states(screen_display_lines):
+    """
+    Extracts PLC IN and PLC OUT bit states from the raw screen display lines.
+    Args:
+        screen_display_lines: A list of strings, representing lines from pyte.Screen.display.
+    Returns:
+        A dictionary with 'plc_in' and 'plc_out' keys, each containing the
+        concatenated bit string (e.g., "X-------" -> "10000000").
+    """
+    full_text = "\n".join(screen_display_lines)
+    
+    plc_in_pattern = re.compile(r"?PLC IN?.*?0x0000:\s*([X\- ]+)", re.DOTALL)
+    plc_out_pattern = re.compile(r"?PLC OUT?.*?0x0000:\s*([X\- ]+)", re.DOTALL)
+
+    plc_in_match = plc_in_pattern.search(full_text)
+    plc_out_match = plc_out_pattern.search(full_text)
+    
+    plc_states = {}
+    
+    if DEBUG: log_message(f"PLC Regex: Searching for PLC IN pattern: '{plc_in_pattern.pattern}'")
+    if DEBUG: log_message(f"PLC Regex: Searching for PLC OUT pattern: '{plc_out_pattern.pattern}'")
+    # log_message(f"Full text for PLC search:\n{full_text}") # Too verbose, uncomment if needed
+
+    if plc_in_match:
+        raw_bits = plc_in_match.group(1)
+        cleaned_bits = raw_bits.replace(' ', '').replace('X', '1').replace('-', '0')
+        plc_states['plc_in'] = cleaned_bits
+        if DEBUG: log_message(f"PLC Regex: Matched PLC IN. Raw: '{raw_bits}', Cleaned: '{cleaned_bits}'")
+    else:
+        plc_states['plc_in'] = None
+        if DEBUG: log_message("PLC Regex: No match found for PLC IN.")
+
+    if plc_out_match:
+        raw_bits = plc_out_match.group(1)
+        cleaned_bits = raw_bits.replace(' ', '').replace('X', '1').replace('-', '0')
+        plc_states['plc_out'] = cleaned_bits
+        if DEBUG: log_message(f"PLC Regex: Matched PLC OUT. Raw: '{raw_bits}', Cleaned: '{cleaned_bits}'")
+    else:
+        plc_states['plc_out'] = None
+        if DEBUG: log_message("PLC Regex: No match found for PLC OUT.")
+    return plc_states
+
 def set_background_red():
     root.config(bg="light coral")
 
 def reset_background_color():
     root.config(bg=original_bg_color)
 
-# --- New Display Fields ---
 data_frame = tk.Frame(root)
 data_frame.pack(pady=10)
 
-mode_label = tk.Label(data_frame, text="MODE: ", font=("Helvetica", 12))
-mode_label.pack(side=tk.LEFT, padx=5)
+mode_label = tk.Label(data_frame, text="MODE:", font=("Helvetica", 12))
+mode_label.pack(side=tk.LEFT, padx=0)
 mode_value = StringVar(value="")
 mode_display = tk.Label(data_frame, textvariable=mode_value, font=("Helvetica", 12, "bold"))
-mode_display.pack(side=tk.LEFT, padx=5)
+mode_display.pack(side=tk.LEFT, padx=0)
 
-speed_label = tk.Label(data_frame, text="SPEED: ", font=("Helvetica", 12))
-speed_label.pack(side=tk.LEFT, padx=5)
+speed_label = tk.Label(data_frame, text="SPEED:", font=("Helvetica", 12))
+speed_label.pack(side=tk.LEFT, padx=10)
 speed_value = StringVar(value="")  # Use StringVar
 speed_display = tk.Label(data_frame, textvariable=speed_value, font=("Helvetica", 12, "bold"))
-speed_display.pack(side=tk.LEFT, padx=5)
+speed_display.pack(side=tk.LEFT, padx=0)
 
-coord_label = tk.Label(data_frame, text="COORD: ", font=("Helvetica", 12))
-coord_label.pack(side=tk.LEFT, padx=5)
+coord_label = tk.Label(data_frame, text="COORD:", font=("Helvetica", 12))
+coord_label.pack(side=tk.LEFT, padx=10)
 coord_value = StringVar(value="")  # Use StringVar
 coord_display = tk.Label(data_frame, textvariable=coord_value, font=("Helvetica", 12, "bold"))
-coord_display.pack(side=tk.LEFT, padx=5)
+coord_display.pack(side=tk.LEFT, padx=0)
 
-status_label = tk.Label(data_frame, text="STATUS: ", font=("Helvetica", 12))
-status_label.pack(side=tk.LEFT, padx=5)
-status_value = StringVar(value="")  # Use StringVar
-status_display = tk.Label(data_frame, textvariable=status_value, font=("Helvetica", 12, "bold"))
-status_display.pack(side=tk.LEFT, padx=5)
+status_label = tk.Label(data_frame, text="SERVO:", font=("Helvetica", 12))
+status_label.pack(side=tk.LEFT, padx=10)
+servo_status_value = StringVar(value="")  # Use StringVar
+status_display = tk.Label(data_frame, textvariable=servo_status_value, font=("Helvetica", 12, "bold"))
+status_display.pack(side=tk.LEFT, padx=0)
 
 joint_label = tk.Label(root, font=("Helvetica", 14))
 joint_label.pack(pady=10)
+
+# --- PLC Display (Two Lines) ---
+PLC_BITS = 64
+
+# Function to format 64 bits into a string with spaces every 8 bits
+def add_spaces_to_bits(bit_string):
+    if not bit_string or len(bit_string) != PLC_BITS:
+        # Return a placeholder string with correct spacing if data is missing
+        placeholder_segment = "--------" # 8 dashes for 8 bits
+        return " ".join([placeholder_segment] * (PLC_BITS // 8))
+    
+    spaced_bits = ""
+    for i in range(0, PLC_BITS, 8):
+        spaced_bits += bit_string[i:i+8] + " "
+    return spaced_bits.strip() # Remove trailing space
+
+# Frame for PLC display
+plc_display_frame = tk.Frame(root, bd=2, relief="groove")
+plc_display_frame.pack(pady=5, padx=10, fill="x")
+
+# PLC IN
+tk.Label(plc_display_frame, text="PLC IN:", font=("Helvetica", 12, "bold")).pack(anchor='w', padx=5, pady=(5,0))
+plc_in_display_label = tk.Label(plc_display_frame, text=add_spaces_to_bits(""), font=("Courier", 14), fg="black")
+plc_in_display_label.pack(anchor='w', padx=5)
+
+# PLC OUT
+tk.Label(plc_display_frame, text="PLC OUT:", font=("Helvetica", 12, "bold")).pack(anchor='w', padx=5, pady=(5,0))
+plc_out_display_label = tk.Label(plc_display_frame, text=add_spaces_to_bits(""), font=("Courier", 14), fg="black")
+plc_out_display_label.pack(anchor='w', padx=5)
+# --- End PLC Display (Two Lines) ---
+
+
 
 input_frame = tk.Frame(root)
 input_frame.pack(pady=10)
 
 joint_names = ["S", "L", "U", "R", "B", "T", "J7", "J8"]
 entries = {}
+
+
 
 def format_joint_entry(event):
     widget = event.widget
@@ -328,8 +413,8 @@ def sync_joint_values():
     speed_value.set(speed)
     coord = send_and_receive_tcp("coord")
     coord_value.set(coord)
-    status = send_and_receive_tcp("servo")
-    status_value.set(status)
+    servo_status = send_and_receive_tcp("servo")
+    servo_status_value.set(servo_status)
 
 # --- New: Send Speed Command ---
 def send_speed_command():
@@ -413,6 +498,21 @@ def update_gui():
                         entries[joint].delete(0, tk.END)
                         entries[joint].insert(0, f"{angles.get(joint, default_joint_values[joint]):.6f}")
                     initial_population_done = True
+        while not plc_state_queue.empty():
+            plc_states = plc_state_queue.get_nowait()
+            # Update PLC IN
+            if plc_states['plc_in'] is not None:
+                formatted_plc_in = add_spaces_to_bits(plc_states['plc_in'])
+                plc_in_display_label.config(text=formatted_plc_in, fg="green" if '1' in plc_states['plc_in'] else "red")
+            else:
+                plc_in_display_label.config(text=add_spaces_to_bits(""), fg="grey")
+
+            # Update PLC OUT
+            if plc_states['plc_out'] is not None:
+                formatted_plc_out = add_spaces_to_bits(plc_states['plc_out'])
+                plc_out_display_label.config(text=formatted_plc_out, fg="green" if '1' in plc_states['plc_out'] else "red")
+            else:
+                plc_out_display_label.config(text=add_spaces_to_bits(""), fg="grey")
     except queue.Empty:
         pass
     root.after(10, update_gui)
