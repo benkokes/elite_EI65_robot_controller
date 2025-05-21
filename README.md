@@ -1,4 +1,4 @@
-# Elite Robot EI65-G71 6 joint Robot controller
+# Elite Robot EI65-G71 6-joint Robot controller
 
 Elite  Robotics (starting out as Beijing Elite Technology company in 2016) began making industrial robots like the EI65, but around 2017, they switched over to the Cobot collaborative robot trend.  However this little guy with a date code of 2018 seemed to be about the last of the efforts to make regular robot arms before they completely shifted to Cobots. As of 2025, almost all information pertaining to this robot is absent.  **If you have one, I would REALLY like to know.** 
 
@@ -19,4 +19,5 @@ Other interesteing bits:
 - Servo drivers are HCSV HCSERVO-X3, nice!
 - The pendant looks like a variant of NEWker robot controller. A lot of their graphics seem to match up.
 - The robot control box has some sort of ARMv7 Processor rev 10 (Freescale i.MX6 Quad/DualLite) board with an Altera Cyclone-IV FPGA on it.
-- Its running Linux version 3.10.18-rt15-ga183926 
+- Its running Linux version 3.10.18-rt15-ga183926
+- To extract robot state/pose, the robotmon will first publish all the data in its first message, then only update the changing characters ( a VT100 behavior!!).  Therefore on the receiving end, you need to leverage an RX Buffer to keep the full message, overwrite changed characters from new messages, then parse the buffer as a whole. 
